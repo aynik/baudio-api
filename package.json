@@ -1,0 +1,32 @@
+{
+  "name": "victoria-circuits",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "now -e NODE_ENV=production -e REDIS_URL=@redis-url",
+    "test": "xo"
+  },
+  "xo": {
+    "esnext": true,
+    "space": true,
+    "semicolon": false,
+    "rules": {
+      "curly": 0,
+      "space-before-function-paren": 0,
+      "babel/new-cap": 0,
+      "babel/object-curly-spacing": 0,
+      "no-unused-vars": ["error", { "args": "none" }]
+    }
+  },
+  "dependencies": {
+    "co-body": "^4.2.0",
+    "icy": "^2.1.0",
+    "ioredis": "^2.3.0",
+    "koa": "^1.2.2",
+    "koa-cors": "0.0.16",
+    "koa-route": "^2.4.2",
+    "lru-cache": "^4.0.1",
+    "request": "^2.74.0"
+  }
+}
