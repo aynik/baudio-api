@@ -1,15 +1,19 @@
 const Hash = require('./hash')
 const Integer = require('./integer')
 
-const Stream = ({ id, name, listeners, bph }) => ({
-  id: Hash(id),
-  name,
-  listeners: Integer(listeners) || 0,
-  bph: Integer(bph) || 1
-})
+class Stream {
+  constructor ({ id, name, listeners, bph, url, info }) {
+    this.id = Hash(id)
+    this.name = name
+    this.listeners = Integer(listeners) || 0
+    this.bph = Integer(bph) || 1
+    this.url = url
+    this.info = info
+  }
 
-Stream.Private = stream => (
-  Object.assign(Stream(stream), { url: stream.url })
-)
+  toJSON () {
+    return Object.assign(this, { url: undefined })
+  }
+}
 
 module.exports = Stream
