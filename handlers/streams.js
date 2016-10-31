@@ -1,12 +1,10 @@
-const crypto = require('crypto')
 const icy = require('icy')
 
-const { Hash, Info, Integer, Stream } = require('../models')
+const { Hid, Info, Integer, Stream } = require('../models')
 const { Buffered } = require('../transforms')
+const { pullStream, pauseStream, unsetStream, updateStreams } = require('../actions')
 const { error, json, mp3, redirect } = require('./responses')
-const { store } = require('./store')
-
-const serviceUrl = process.env.NOW_ALIAS || process.env.NOW_URL
+const { stores } = require('./store')
 
 const key = hid => `stream:${hid}`
 
@@ -29,8 +27,14 @@ const scan = (req, res, next) => {
 }
 
 const one = (req, res, next) => {
-  const { id } = req.params
-  const hid = Hash(id)
+  let hid
+  try {
+    hid = Hid(req.params.hid)
+  } catch (err) {
+    req.body = new Error('wrong hid')
+    error(req, res, next)
+    return
+  }
   if (!hid) {
     req.statusCode = 404
     req.body = new Error('not found')
@@ -43,18 +47,16 @@ const one = (req, res, next) => {
 }
 
 const register = (req, res, next) => {
-  if (!req.body.url) {
+  const { url } = req.body
+  if (!url) {
     req.statusCode = 404
-    req.body = new Error('not url')
+    req.body = new Error('no url field on payload')
     return error(req, res, next)
   }
-
   const { redis } = req
-  const hid = crypto.createHash('sha256')
-    .update(req.body.url).digest('hex')
-
-  icy.get(req.body.url, res => {
-    const name = res.headers['icy-name'] || hid
+  const hid = Hid(url)
+  icy.get(url, res => {
+    const name = res.headers['icy-name']
     const stream = new Stream({
       id: hid,
       name,
@@ -65,35 +67,62 @@ const register = (req, res, next) => {
     res.on('metadata', buf => {
       const info = new Info(icy.parse(buf).StreamTitle)
       redis.hset(key(hid), 'info', info.value)
-      req.body = `${serviceUrl}/stream/${hid}`
+      req.body = stream
       next()
     })
+  }).on('error', _ => {
+    req.body = new Error("can't connect to stream")
+    error(req, res, next)
   })
 }
 
 const fetch = (req, res, next) => {
-  if (req.body && req.body.pipe) return next()
+  if (req.body && req.body.then) return next()
   else if (!req.body) {
     req.body = new Error('no stream')
     return error(req, res, next)
   }
-  const { redis } = req
+  const { redis, io } = req
   const { id, url } = req.body
   const buffered = new Buffered(160000) // 10s @ 128kbps
-  icy.get(url, res => {
-    res.on('data', data => buffered.write(data))
-      .on('end', _ => store.del(key(id)))
-      .on('metadata', buf => {
-        const info = new Info(icy.parse(buf).StreamTitle)
-        buffered.emit('info', info)
-        redis.hset(key(id), 'info', info.value)
+  req.body = new Promise((resolve, reject) => {
+    const req = icy.get(url, emission => {
+      const handler = data => buffered.write(data)
+      emission
+        .on('data', handler)
+        .on('end', _ => {
+          io.emit('action', pullStream(id))
+          io.emit('action', pauseStream())
+          io.emit('action', unsetStream())
+          stores.stream.del(key(id))
+        })
+        .on('metadata', buf => {
+          const info = new Info(icy.parse(buf).StreamTitle)
+          buffered.emit('info', info)
+          redis.hset(key(id), 'info', info.value)
+        })
+      res.on('close', _ => {
+        emission.removeListener('data', handler)
+        if (!buffered.listeners('data').length) {
+          req.end()
+        }
       })
-    req.body = buffered
-    next()
-  }).on('error', err => {
-    req.body = err
-    error(req, res, next)
+      buffered.on('piped', _ => {
+        redis.hincrby(key(id), 'listeners', 1)
+        io.emit('action', updateStreams({
+          [id]: { $listeners: '+1' }
+        }))
+      })
+      buffered.on('unpiped', _ => {
+        redis.hincrby(key(id), 'listeners', -1)
+        io.emit('action', updateStreams({
+          [id]: { $listeners: '-1' }
+        }))
+      })
+      resolve(buffered)
+    }).on('error', reject)
   })
+  next()
 }
 
 const changes = (req, res, next) => {

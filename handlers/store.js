@@ -1,42 +1,35 @@
 const lru = require('lru-cache')
 
-const { Hash } = require('../models')
-const { error } = require('./responses')
-
-const key = (space, id) => `${space}:${id}`
-
-const store = lru({
-  max: 1000,
-  dispose (_, cached) {
-    console.log('dispose', cached)
-    cached.then(inst => inst.unpipe())
-  }
-})
+const stores = {
+  stream: lru({
+    max: 1000,
+    dispose (_, cached) {
+      cached.then(inst => inst.unpipe())
+    }
+  }),
+  address: lru({
+    max: 10000
+  })
+}
 
 const cache = space => (req, res, next) => {
-  const { id } = req.body
-  if (!store.has(key(space, id))) {
-    store.set(key(space, id), req.body)
+  const store = stores[space]
+  const { key } = req.params
+  if (!store.has(key)) {
+    store.set(key, req.body)
   }
   next()
 }
 
 const cached = space => (req, res, next) => {
-  const { id } = req.params
-  const hid = Hash(id)
-
-  if (!hid) {
-    req.body = new Error('wrong id')
-    return error(req, res, next)
-  }
-
-  const cached = store.get(key(space, id))
-  if (cached) req.body = cached
+  const store = stores[space]
+  const { key } = req.params
+  req.body = store.get(key)
   next()
 }
 
 module.exports = {
-  store,
+  stores,
   cache,
   cached
 }

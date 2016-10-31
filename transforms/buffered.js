@@ -14,6 +14,7 @@ class Buffered extends PassThrough {
     if (!opts || opts.end) {
       this.on('end', dest.destroy.bind(dest))
     }
+    this.emit('piped')
     return dest
   }
 
