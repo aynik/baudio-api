@@ -24,7 +24,8 @@ const cache = space => (req, res, next) => {
 const cached = space => (req, res, next) => {
   const store = stores[space]
   const { key } = req.params
-  req.body = store.get(key)
+  const val = store.get(key)
+  if (val) req.body = val
   next()
 }
 

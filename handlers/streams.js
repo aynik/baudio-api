@@ -41,6 +41,7 @@ const one = (req, res, next) => {
     return error(req, res, next)
   }
   const { redis } = req
+  req.params = { key: hid, hid }
   req.body = redis.hgetall(key(hid))
     .then(record => new Stream(record))
   next()
